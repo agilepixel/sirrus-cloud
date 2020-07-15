@@ -3,7 +3,7 @@
  * Plugin Name:       Sirrus Cloud
  * Plugin URI:        https://www.sirruscomputers.com/
  * Description:       Sirrus Cloud integration
- * Version:           2.1.0
+ * Version:           2.2.0
  * Requires at least: 5.2
  * Requires PHP:      7.2
  * License:           GPL v2 or later
@@ -12,9 +12,9 @@
 
 require 'plugin-update-checker/plugin-update-checker.php';
 $scUpdateChecker = Puc_v4_Factory::buildUpdateChecker(
-	'https://github.com/agilepixel/sirrus-cloud/',
-	__FILE__,
-	'sirrus-cloud'
+    'https://github.com/agilepixel/sirrus-cloud/',
+    __FILE__,
+    'sirrus-cloud'
 );
 
 //Optional: If you're using a private repository, specify the access token like this:
@@ -27,9 +27,13 @@ if (!class_exists('Sirrus_Cloud')) {
     class Sirrus_Cloud
     {
         public static $instance = false;
-        public static $version = '2.1.0';
+        public static $version = '2.2.0';
         public static $path = '';
         public static $settings = array();
+
+        private static $stock = [];
+        private static $group = [];
+        private static $artist = [];
 
         private function __construct()
         {
@@ -296,7 +300,7 @@ if (!class_exists('Sirrus_Cloud')) {
                             'id'       => $_field,
                             'text'     => $_field,
                         );
-                        if($_field === 'stock_image'){
+                        if ($_field === 'stock_image') {
                             $group['children'][] = array(
                                 'id'       => 'stock_image_additional',
                                 'text'     => 'stock_image_additional',
@@ -306,26 +310,58 @@ if (!class_exists('Sirrus_Cloud')) {
                     $result[] = $group;
                 }
             }
-            
             wp_send_json(array('results' => $result));
         }
 
+        public function phpConfigValueInBytes(string $var)
+        {
+            $value = trim(ini_get($var));
+            $unit = strtolower(substr($value, -1, 1));
+            $value = (int)$value;
+    
+            switch ($unit) {
+                case 'g':
+                    $value *= 1024;
+                // no break (cumulative multiplier)
+                case 'm':
+                    $value *= 1024;
+                // no break (cumulative multiplier)
+                case 'k':
+                    $value *= 1024;
+            }
+    
+            return $value;
+        }
+
+        public function maxPowerCaptain()
+        {
+            // Don't mess with the memory_limit, even at the config's request, if it's already set to -1 or >= 1.5GB
+            $memoryLimit = $this->phpConfigValueInBytes('memory_limit');
+            if ($memoryLimit !== -1 && $memoryLimit < 1024 * 1024 * 1536) {
+                @ini_set('memory_limit', $maxMemoryLimit ?: '1536M');
+            }
+    
+            // Try to disable the max execution time
+            @set_time_limit(0);
+        }
+
         public function import_endpoint()
-        {   
-            if(isset($_FILES['payload']) && function_exists('gzuncompress')){
+        {
+            $this->maxPowerCaptain();
+            $is_test = isset($_GET['debug']);
+            if (isset($_FILES['payload']) && function_exists('gzuncompress')) {
                 $post = gzuncompress(file_get_contents($_FILES['payload']['tmp_name']));
+            } elseif ($is_test) {
+                $upload_dir = plugin_dir_path(__FILE__).'testimport/';
+                $post = file_get_contents($upload_dir.'/import-'.$_GET['debug'].'.json');
             } else {
                 $post = file_get_contents("php://input");
             }
             $json = json_encode($post, JSON_PRETTY_PRINT);
+            
             $upload_dir = self::get_upload_dir();
             $result = array();
-            $is_test = isset($_GET['debug']);
             
-            if ($is_test) {
-                $upload_dir = plugin_dir_path(__FILE__).'testimport/';
-                $post = file_get_contents($upload_dir.'/import-'.$_GET['debug'].'.json');
-            }
 
             if (!empty($post)) {
                 if (!$is_test && isset($json['id'])) {
@@ -334,13 +370,11 @@ if (!class_exists('Sirrus_Cloud')) {
                 } else {
                     $json = json_decode($post, true);
                 }
-                
                 if (!empty($json)) {
-
-                    if(!isset($json['items']) && isset($json['pull'])){
+                    if (!isset($json['items']) && isset($json['pull'])) {
                         $contents = file_get_contents($json['pull']);
                         $json = json_decode($contents, true);
-                        if(empty($json)){
+                        if (empty($json)) {
                             $result = array('result' => 'failed', 'log' => 'empty pull');
                             wp_send_json($result);
                             wp_die();
@@ -353,7 +387,7 @@ if (!class_exists('Sirrus_Cloud')) {
                     $log    = '';
                     $result = $json;
                     $result['items'] = array();
-                    
+
                     if ($authentication_wp == $authentication || $is_test) {
                         foreach ($json['items'] as $_item) {
                             if ($json['deploy_record'] == 'stock') {
@@ -464,6 +498,7 @@ if (!class_exists('Sirrus_Cloud')) {
         public static function import_group($item = array())
         {
             $import_stock_fail = array();
+            
             if (!empty($item['stocks'])) {
                 foreach ($item['stocks'] as $_stock) {
                     $import_result = self::import_stock($_stock);
@@ -475,6 +510,7 @@ if (!class_exists('Sirrus_Cloud')) {
                     return array('success' => false, 'log' => implode("\n", $import_stock_fail));
                 }
             }
+            
 
             $post_type = self::$settings['import_group_link_post_type'];
 
@@ -677,13 +713,16 @@ if (!class_exists('Sirrus_Cloud')) {
 
         public static function update_post($type, $post_type = '', $data = array(), $schema = array(), $updateID = '')
         {
+            if (isset(self::$$type[$data['record_id']])) {
+                return;
+            }
             if (preg_match('/^taxonomy~(.*)/', $post_type, $matches)) {
                 $termid = $matches[1];
                 $title = (!empty($data['display_name']))?$data['display_name']:$data['record_id'];
 
                 if (preg_match('/^term_id_(.*)$/', $updateID, $termmatch)) {
                     $id = $termmatch[1];
-                } else if(!empty($title)) {
+                } elseif (!empty($title)) {
                     $label_term = term_exists($title, $termid);
         
                     if (empty($label_term)) {
@@ -773,7 +812,6 @@ if (!class_exists('Sirrus_Cloud')) {
                 }
 
                 $standard_field->post_status = 'publish';
-
                 if (empty($updateID)) {
                     $id = wp_insert_post($standard_field);
                 } else {
@@ -823,10 +861,11 @@ if (!class_exists('Sirrus_Cloud')) {
                     }
 
                     $meta_field['aimp_import_uid'] = $type.':'.$data['record_id'];
+
                     if (!empty($meta_field)) {
                         foreach ($meta_field as $key => $value) {
                             if (preg_match('/^taxonomy~(.*)/', $key, $matches)) {
-                                if(empty($value)){
+                                if (empty($value)) {
                                     wp_set_post_terms($id, [], $matches[1], false);
                                     continue;
                                 }
@@ -835,13 +874,13 @@ if (!class_exists('Sirrus_Cloud')) {
                                 if (empty($label_term)) {
                                     $label_term = wp_insert_term($value, $matches[1]);
                                 }
-                                
                                 wp_set_post_terms($id, $label_term['term_id'], $matches[1], false);
                             } elseif (!is_null($value)) {
                                 update_post_meta($id, $key, $value);
                             }
                         }
                     }
+                    self::$$type[$data['record_id']] = $id;
                     return true;
                 } else {
                     return false;
@@ -948,43 +987,47 @@ if (!class_exists('Sirrus_Cloud')) {
             return false;
         }
 
-        public static function set_post_image($fileurl, $post_id, $post_title)
+
+        public static function set_post_image($url, $post_id, $post_title)
         {
-            $upload_dir = self::get_upload_dir().'/stocks/';
-            if (!file_exists($upload_dir)) {
-                mkdir($upload_dir);
-            }
+            $args = [
+                'post_type' => 'attachment',
+                'posts_per_page' => 1,
+                'post_status' => 'any',
+                'meta_query' => [
+                    [
+                        'key'     => 'aimp_image_url',
+                        'value'   => $url,
+                        'compare' => '=',
+                    ],
+                ],
+            ];
+            $attachments = get_posts($args);
 
-            $sorcename = basename($fileurl);
-            $filename = $upload_dir.$sorcename;
-
-            $raw = file_get_contents($fileurl);
-            file_put_contents($filename, $raw);
-
-            if (file_exists($filename)) {
-                $existing_attach_id = self::wp_get_attachment_by_post_name($post_title);
-                if (!empty($existing_attach_id)) {
-                    set_post_thumbnail($post_id, $existing_attach_id->ID);
-                } else {
-                    $filetype = wp_check_filetype(basename($filename), null);
-                    $wp_upload_dir = wp_upload_dir();
-
-                    $target_path = $wp_upload_dir['basedir'] . '/stocks/'.basename($sorcename);
-                    $target_url  = $wp_upload_dir['baseurl'] . '/stocks/'.basename($sorcename);
-
-                    $attachment = array(
-                        'guid'           => $target_url,
-                        'post_mime_type' => $filetype['type'],
-                        'post_title'     => $post_title,
-                        'post_status'    => 'publish'
-                    );
-                    $attach_id = wp_insert_attachment($attachment, $target_path, $post_id);
-                    $attach_data = wp_generate_attachment_metadata($attach_id, $target_path);
-                    wp_update_attachment_metadata($attach_id, $attach_data);
-                    set_post_thumbnail($post_id, $attach_id);
+            if (is_null($attachments) || count($attachments) === 0) {
+                $args = array(
+                    'posts_per_page' => 1,
+                    'post_type' => 'attachment',
+                    'name'      => trim($post_title),
+                );
+                $attachments = get_posts($args);
+                if (!is_null($attachments) && count($attachments) > 0) {
+                    update_post_meta($attachments[0]->ID, 'aimp_image_url', $url);
                 }
             }
+
+            $existing = false;
+            if (is_null($attachments) || count($attachments) === 0) {
+                $media = media_sideload_image($url, $post_id, $post_title, 'id');
+                update_post_meta($media, 'aimp_image_url', $url);
+            } else {
+                $existing = true;
+                $media = $attachments[0]->ID;
+            }
+
+            set_post_thumbnail($post_id, $media);
         }
+        
         public static function wp_get_attachment_by_post_name($post_name)
         {
             $args = array(

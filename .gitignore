@@ -9,3 +9,4 @@ coverage/
 *.tar.gz
 *.zip
 vendor/
+.php_cs.cache
