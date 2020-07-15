@@ -1,0 +1,21 @@
+.select-post_type .select2.select2-container,
+.select-post_type select,
+.wp-list-mapping-table .select2.select2-container,
+.wp-list-mapping-table select{
+    width: 100% !important;
+}
+
+.select-post_type .select2.select2-container,
+.select-post_type select{
+    max-width: 25em;;
+}
+
+.mapping_form p.submit{
+    margin-top:0;
+}
+
+.mapping_form .column-option,
+.mapping_form .field-option{
+    text-align: center;
+    width: 120px;
+}
