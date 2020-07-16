@@ -3,7 +3,7 @@
  * Plugin Name:       Sirrus Cloud
  * Plugin URI:        https://www.sirruscomputers.com/
  * Description:       Sirrus Cloud integration
- * Version:           2.2.0
+ * Version:           2.2.1
  * Requires at least: 5.2
  * Requires PHP:      7.2
  * License:           GPL v2 or later
@@ -27,7 +27,7 @@ if (!class_exists('Sirrus_Cloud')) {
     class Sirrus_Cloud
     {
         public static $instance = false;
-        public static $version = '2.2.0';
+        public static $version = '2.2.1';
         public static $path = '';
         public static $settings = array();
 
@@ -702,7 +702,11 @@ if (!class_exists('Sirrus_Cloud')) {
             $existing = false;
             if (is_null($attachments) || count($attachments) === 0) {
                 $media = media_sideload_image($url, $post_id, null, 'id');
-                update_post_meta($media, 'aimp_image_url', $url);
+                if(!is_wp_error($media)){
+                    update_post_meta($media, 'aimp_image_url', $url);
+                } else {
+                    return false;
+                }
             } else {
                 $existing = true;
                 $media = $attachments[0]->ID;
@@ -817,7 +821,7 @@ if (!class_exists('Sirrus_Cloud')) {
                 } else {
                     $id = $updateID;
                     $standard_field->ID = $updateID;
-                    wp_update_post($standard_field);
+                    $return = wp_update_post($standard_field, true);
                 }
 
                 if (!empty($schema)) {
@@ -1019,7 +1023,11 @@ if (!class_exists('Sirrus_Cloud')) {
             $existing = false;
             if (is_null($attachments) || count($attachments) === 0) {
                 $media = media_sideload_image($url, $post_id, $post_title, 'id');
-                update_post_meta($media, 'aimp_image_url', $url);
+                if(!is_wp_error($media)){
+                    update_post_meta($media, 'aimp_image_url', $url);
+                } else {
+                    return;
+                }
             } else {
                 $existing = true;
                 $media = $attachments[0]->ID;
