@@ -3,7 +3,7 @@
  * Plugin Name:       Sirrus Cloud
  * Plugin URI:        https://www.sirruscomputers.com/
  * Description:       Sirrus Cloud integration
- * Version:           2.2.1
+ * Version:           2.2.2
  * Requires at least: 5.2
  * Requires PHP:      7.2
  * License:           GPL v2 or later
@@ -27,7 +27,7 @@ if (!class_exists('Sirrus_Cloud')) {
     class Sirrus_Cloud
     {
         public static $instance = false;
-        public static $version = '2.2.1';
+        public static $version = '2.2.2';
         public static $path = '';
         public static $settings = array();
 
@@ -166,7 +166,6 @@ if (!class_exists('Sirrus_Cloud')) {
         {
             global $wpdb;
             $output = array();
-            $result = array();
             $q = $_GET['q'];
 
             $standard = array(
@@ -184,6 +183,8 @@ if (!class_exists('Sirrus_Cloud')) {
                 $results = $wpdb->get_results("SELECT meta_key FROM {$wpdb->prefix}postmeta group by meta_key", ARRAY_A);
             }
             if (!empty($results)) {
+                $result = [];
+                $foundKeys = [];
                 foreach ($results as $_result) {
                     if (in_array($_result['meta_key'], array('post_title', 'post_content', 'post_excerpt', 'post_thumbnails'))) {
                         continue;
@@ -191,14 +192,54 @@ if (!class_exists('Sirrus_Cloud')) {
                     if (substr($_result['meta_key'], 0, 1) === '_') {
                         continue;
                     }
+                    $foundKeys[] = $_result['meta_key'];
                     $result[] = array(
                         'id'       => $_result['meta_key'],
                         'text'     => 'Meta -> ' . $_result['meta_key'],
                     );
                 }
 
-                $taxes = get_taxonomies();
+                $not_in = implode(', ', array_map(function ($value) {
+                    return '"'.$value.'"';
+                }, $foundKeys));
 
+                $sql = "SELECT post_excerpt FROM {$wpdb->prefix}posts WHERE post_type = 'acf-field' AND post_status = 'publish' AND post_excerpt NOT IN (".$not_in.")";
+                $acf_contents = $wpdb->get_results($sql);
+                
+                foreach ($acf_contents as $_result) {
+                    $foundKeys[] = $_result->post_excerpt;
+                    $result[] = array(
+                        'id'       => $_result->post_excerpt,
+                        'text'     => 'Meta -> ' . $_result->post_excerpt,
+                    );
+                }
+
+                $sql = "SELECT post_excerpt, post_name FROM {$wpdb->prefix}posts WHERE post_type = 'acf-field' AND post_status = 'publish' AND post_content LIKE '%\"type\";s:5:\"group\"%'";
+                $group_contents = $wpdb->get_results($sql);
+                foreach ($group_contents as $group_content) {
+                    $object = get_field_object($group_content->post_name);
+                    foreach ($object['sub_fields'] as $sub_field) {
+                        $join = $object['name'] . '_' . $sub_field['name'];
+                        if (!in_array($join, $foundKeys)) {
+                            $foundKeys[] = $join;
+                            $result[] = array(
+                                'id'       => $join,
+                                'text'     => 'Meta -> ' . $join,
+                            );
+                        }
+                    }
+                }
+
+                usort($result, function ($a, $b) {
+                    return strcmp($a["id"], $b["id"]);
+                });
+                
+                $output[] = array('text' => 'Custom field','children' => $result);
+            }
+
+            $taxes = get_taxonomies();
+            if (count($taxes) > 0) {
+                $result = [];
                 foreach ($taxes as $tax) {
                     $result[] = array(
                         'id'       => 'taxonomy~'.$tax,
@@ -220,8 +261,10 @@ if (!class_exists('Sirrus_Cloud')) {
                         }
                     }
                 }
-                
-                $output[] = array('text' => 'Custom field','children' => $result);
+                usort($result, function ($a, $b) {
+                    return strcmp($a["id"], $b["id"]);
+                });
+                $output[] = array('text' => 'Taxonomy','children' => $result);
             }
 
             wp_send_json(array('results' => $output));
@@ -564,9 +607,29 @@ if (!class_exists('Sirrus_Cloud')) {
             global $wpdb;
             
             $return = $data;
-            $sql = "SELECT post_name, post_content FROM {$wpdb->prefix}posts WHERE post_type = 'acf-field' AND post_excerpt = '".$field."'";
+            $sql = "SELECT post_name, post_content FROM {$wpdb->prefix}posts WHERE post_type = 'acf-field' AND post_status = 'publish' AND post_excerpt = '".$field."'";
             $acf_contents = $wpdb->get_results($sql);
             $field_id = null;
+
+
+            if (count($acf_contents) === 0 && $field != 'post_title') {
+                $sql = "SELECT ID, post_name, post_content FROM {$wpdb->prefix}posts WHERE post_type = 'acf-field' AND post_status = 'publish' AND post_content LIKE '%\"type\";s:5:\"group\"%'";
+                $group_contents = $wpdb->get_results($sql);
+                foreach ($group_contents as $group_content) {
+                    $object = get_field_object($group_content->post_name);
+                    foreach ($object['sub_fields'] as $sub_field) {
+                        $join = $object['name'] . '_' . $sub_field['name'];
+                        if ($field === $join) {
+                            $group_obj = new stdClass();
+                            $group_obj->post_name = $sub_field->key;
+                            $group_obj->post_content = serialize($sub_field);
+                            $acf_contents = [
+                                $group_obj
+                            ];
+                        }
+                    }
+                }
+            }
             foreach ($acf_contents as $acf_content) {
                 //acf field
                 $acfdata = unserialize($acf_content->post_content);
@@ -702,7 +765,7 @@ if (!class_exists('Sirrus_Cloud')) {
             $existing = false;
             if (is_null($attachments) || count($attachments) === 0) {
                 $media = media_sideload_image($url, $post_id, null, 'id');
-                if(!is_wp_error($media)){
+                if (!is_wp_error($media)) {
                     update_post_meta($media, 'aimp_image_url', $url);
                 } else {
                     return false;
@@ -773,7 +836,7 @@ if (!class_exists('Sirrus_Cloud')) {
             
                 if (!empty($schema)) {
                     foreach ($schema as $source => $wp) {
-                        if (in_array($wp, $standard_field_key) && isset($data[$source])) {
+                        if (array_key_exists($wp, $standard_field_key) && isset($data[$source])) {
                             $standard_field->{$wp} = $data[$source];
                         }
                     }
@@ -1023,7 +1086,7 @@ if (!class_exists('Sirrus_Cloud')) {
             $existing = false;
             if (is_null($attachments) || count($attachments) === 0) {
                 $media = media_sideload_image($url, $post_id, $post_title, 'id');
-                if(!is_wp_error($media)){
+                if (!is_wp_error($media)) {
                     update_post_meta($media, 'aimp_image_url', $url);
                 } else {
                     return;
