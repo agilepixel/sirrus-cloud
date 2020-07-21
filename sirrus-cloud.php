@@ -3,7 +3,7 @@
  * Plugin Name:       Sirrus Cloud
  * Plugin URI:        https://www.sirruscomputers.com/
  * Description:       Sirrus Cloud integration
- * Version:           2.2.2
+ * Version:           2.2.3
  * Requires at least: 5.2
  * Requires PHP:      7.2
  * License:           GPL v2 or later
@@ -27,13 +27,16 @@ if (!class_exists('Sirrus_Cloud')) {
     class Sirrus_Cloud
     {
         public static $instance = false;
-        public static $version = '2.2.2';
+        public static $version = '2.2.3';
         public static $path = '';
         public static $settings = array();
 
         private static $stock = [];
         private static $group = [];
         private static $artist = [];
+
+        private static $acf_fields = [];
+        private static $acf_groups;
 
         private function __construct()
         {
@@ -213,9 +216,8 @@ if (!class_exists('Sirrus_Cloud')) {
                         'text'     => 'Meta -> ' . $_result->post_excerpt,
                     );
                 }
-
-                $sql = "SELECT post_excerpt, post_name FROM {$wpdb->prefix}posts WHERE post_type = 'acf-field' AND post_status = 'publish' AND post_content LIKE '%\"type\";s:5:\"group\"%'";
-                $group_contents = $wpdb->get_results($sql);
+                
+                $group_contents = self::get_acf_groups();
                 foreach ($group_contents as $group_content) {
                     $object = get_field_object($group_content->post_name);
                     foreach ($object['sub_fields'] as $sub_field) {
@@ -601,20 +603,40 @@ if (!class_exists('Sirrus_Cloud')) {
             }
         }
 
+        public static function get_acf_fields($name)
+        {
+            global $wpdb;
+            if (isset(self::$acf_fields[$name])) {
+                return self::$acf_fields[$name];
+            }
+            $sql = "SELECT post_name, post_content FROM {$wpdb->prefix}posts WHERE post_type = 'acf-field' AND post_status = 'publish' AND post_excerpt = '".$name."'";
+            self::$acf_fields[$name] = $wpdb->get_results($sql);
+            return self::$acf_fields[$name];
+        }
+
+
+        public static function get_acf_groups()
+        {
+            global $wpdb;
+            if (!is_null(self::$acf_groups)) {
+                return self::$acf_groups;
+            }
+            $sql = "SELECT ID, post_name, post_content, post_excerpt FROM {$wpdb->prefix}posts WHERE post_type = 'acf-field' AND post_status = 'publish' AND post_content LIKE '%\"type\";s:5:\"group\"%'";
+            self::$acf_groups = $wpdb->get_results($sql);
+            return self::$acf_groups;
+        }
+
 
         public static function process_meta($data, $field, $post_id = false)
         {
-            global $wpdb;
-            
             $return = $data;
-            $sql = "SELECT post_name, post_content FROM {$wpdb->prefix}posts WHERE post_type = 'acf-field' AND post_status = 'publish' AND post_excerpt = '".$field."'";
-            $acf_contents = $wpdb->get_results($sql);
+           
+            $acf_contents = self::get_acf_fields($field);
             $field_id = null;
 
 
             if (count($acf_contents) === 0 && $field != 'post_title') {
-                $sql = "SELECT ID, post_name, post_content FROM {$wpdb->prefix}posts WHERE post_type = 'acf-field' AND post_status = 'publish' AND post_content LIKE '%\"type\";s:5:\"group\"%'";
-                $group_contents = $wpdb->get_results($sql);
+                $group_contents = self::get_acf_groups();
                 foreach ($group_contents as $group_content) {
                     $object = get_field_object($group_content->post_name);
                     foreach ($object['sub_fields'] as $sub_field) {
