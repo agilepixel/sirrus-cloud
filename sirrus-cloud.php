@@ -3,7 +3,7 @@
  * Plugin Name:       Sirrus Cloud
  * Plugin URI:        https://www.sirruscomputers.com/
  * Description:       Sirrus Cloud integration
- * Version:           2.2.3
+ * Version:           2.2.4
  * Requires at least: 5.2
  * Requires PHP:      7.2
  * License:           GPL v2 or later
@@ -27,7 +27,7 @@ if (!class_exists('Sirrus_Cloud')) {
     class Sirrus_Cloud
     {
         public static $instance = false;
-        public static $version = '2.2.3';
+        public static $version = '2.2.4';
         public static $path = '';
         public static $settings = array();
 
@@ -643,7 +643,7 @@ if (!class_exists('Sirrus_Cloud')) {
                         $join = $object['name'] . '_' . $sub_field['name'];
                         if ($field === $join) {
                             $group_obj = new stdClass();
-                            $group_obj->post_name = $sub_field->key;
+                            $group_obj->post_name = $join;
                             $group_obj->post_content = serialize($sub_field);
                             $acf_contents = [
                                 $group_obj
@@ -937,7 +937,9 @@ if (!class_exists('Sirrus_Cloud')) {
                                     }
                                 }
                             }
-                            $meta_field[$wp] = self::process_meta($meta, $wp, $id);
+                            if (!array_key_exists($wp, $standard_field_key)) {
+                                $meta_field[$wp] = self::process_meta($meta, $wp, $id);
+                            }
                         }
                     }
                 }
