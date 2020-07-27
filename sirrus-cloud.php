@@ -3,7 +3,7 @@
  * Plugin Name:       Sirrus Cloud
  * Plugin URI:        https://www.sirruscomputers.com/
  * Description:       Sirrus Cloud integration
- * Version:           2.2.4
+ * Version:           2.2.5
  * Requires at least: 5.2
  * Requires PHP:      7.2
  * License:           GPL v2 or later
@@ -27,7 +27,7 @@ if (!class_exists('Sirrus_Cloud')) {
     class Sirrus_Cloud
     {
         public static $instance = false;
-        public static $version = '2.2.4';
+        public static $version = '2.2.5';
         public static $path = '';
         public static $settings = array();
 
@@ -37,6 +37,8 @@ if (!class_exists('Sirrus_Cloud')) {
 
         private static $acf_fields = [];
         private static $acf_groups;
+
+        private static $existing_posts = [];
 
         private function __construct()
         {
@@ -402,23 +404,23 @@ if (!class_exists('Sirrus_Cloud')) {
             } else {
                 $post = file_get_contents("php://input");
             }
-            $json = json_encode($post, JSON_PRETTY_PRINT);
             
             $upload_dir = self::get_upload_dir();
             $result = array();
             
-
             if (!empty($post)) {
+                $json = json_decode($post, true);
                 if (!$is_test && isset($json['id'])) {
-                    $json = json_decode($post, true);
                     file_put_contents($upload_dir.'/import-'.$json['id'].'.json', $post);
-                } else {
-                    $json = json_decode($post, true);
                 }
+                
                 if (!empty($json)) {
                     if (!isset($json['items']) && isset($json['pull'])) {
                         $contents = file_get_contents($json['pull']);
-                        $json = json_decode($contents, true);
+                        $json = json_decode(gzuncompress($contents), true);
+                        if (empty($json)) {
+                            $json = json_decode($contents, true);
+                        }
                         if (empty($json)) {
                             $result = array('result' => 'failed', 'log' => 'empty pull');
                             wp_send_json($result);
@@ -1061,10 +1063,14 @@ if (!class_exists('Sirrus_Cloud')) {
         public static function is_post_exists($uid = '')
         {
             global $wpdb;
+            if (!empty($uid) && isset(self::$existing_posts[$uid])) {
+                return self::$existing_posts[$uid];
+            }
             if (!empty($uid)) {
                 $sql = "SELECT post_id FROM {$wpdb->prefix}postmeta WHERE meta_key LIKE 'aimp_import_uid' AND meta_value LIKE '".$uid."' LIMIT 0,1";
                 $post_id = $wpdb->get_var($sql);
                 if (!empty($post_id)) {
+                    self::$existing_posts[$uid] = $post_id;
                     return $post_id;
                 }
             }
@@ -1072,8 +1078,12 @@ if (!class_exists('Sirrus_Cloud')) {
                 $sql = "SELECT term_id FROM {$wpdb->prefix}termmeta WHERE meta_key LIKE 'aimp_import_uid' AND meta_value LIKE '".$uid."' LIMIT 0,1";
                 $post_id = $wpdb->get_var($sql);
                 if (!empty($post_id)) {
+                    self::$existing_posts[$uid] = 'term_id_'.$post_id;
                     return 'term_id_'.$post_id;
                 }
+            }
+            if (!empty($uid)) {
+                self::$existing_posts[$uid] = false;
             }
             return false;
         }
