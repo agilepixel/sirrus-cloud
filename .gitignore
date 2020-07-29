@@ -8,5 +8,4 @@ coverage/
 *.sql
 *.tar.gz
 *.zip
-vendor/
 .php_cs.cache

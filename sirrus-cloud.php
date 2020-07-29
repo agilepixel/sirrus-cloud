@@ -3,14 +3,15 @@
  * Plugin Name:       Sirrus Cloud
  * Plugin URI:        https://www.sirruscomputers.com/
  * Description:       Sirrus Cloud integration
- * Version:           2.2.5
+ * Version:           2.2.6
  * Requires at least: 5.2
  * Requires PHP:      7.2
  * License:           GPL v2 or later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
  */
 
-require 'plugin-update-checker/plugin-update-checker.php';
+require_once plugin_dir_path(__FILE__).'/vendor/autoload.php';
+
 $scUpdateChecker = Puc_v4_Factory::buildUpdateChecker(
     'https://github.com/agilepixel/sirrus-cloud/',
     __FILE__,
@@ -27,7 +28,7 @@ if (!class_exists('Sirrus_Cloud')) {
     class Sirrus_Cloud
     {
         public static $instance = false;
-        public static $version = '2.2.5';
+        public static $version = '2.2.6';
         public static $path = '';
         public static $settings = array();
 
