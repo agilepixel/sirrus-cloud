@@ -3,7 +3,7 @@
  * Plugin Name:       Sirrus Cloud
  * Plugin URI:        https://www.sirruscomputers.com/
  * Description:       Sirrus Cloud integration
- * Version:           2.2.6
+ * Version:           2.2.7
  * Requires at least: 5.2
  * Requires PHP:      7.2
  * License:           GPL v2 or later
@@ -28,7 +28,7 @@ if (!class_exists('Sirrus_Cloud')) {
     class Sirrus_Cloud
     {
         public static $instance = false;
-        public static $version = '2.2.6';
+        public static $version = '2.2.7';
         public static $path = '';
         public static $settings = array();
 
@@ -181,13 +181,19 @@ if (!class_exists('Sirrus_Cloud')) {
                 array('id' => 'post_thumbnails', 'text' => 'post_thumbnails'),
             );
 
-            $output[] = array('text' => 'Standard Field','children' => $standard);
-
             if (!empty($q)) {
-                $results = $wpdb->get_results("SELECT meta_key FROM {$wpdb->prefix}postmeta WHERE meta_key LIKE '".$q."%' group by meta_key", ARRAY_A);
-            } else {
-                $results = $wpdb->get_results("SELECT meta_key FROM {$wpdb->prefix}postmeta group by meta_key", ARRAY_A);
+                $standard = array_filter($standard, function ($r) use ($q) {
+                    return strpos($r['id'], $q) !== false;
+                });
+                $standard = array_values($standard);
             }
+            if (count($standard) > 0) {
+                $output[] = array('text' => 'Standard Field','children' => $standard);
+            }
+
+
+            $results = $wpdb->get_results("SELECT meta_key FROM {$wpdb->prefix}postmeta group by meta_key", ARRAY_A);
+
             if (!empty($results)) {
                 $result = [];
                 $foundKeys = [];
@@ -238,8 +244,15 @@ if (!class_exists('Sirrus_Cloud')) {
                 usort($result, function ($a, $b) {
                     return strcmp($a["id"], $b["id"]);
                 });
-                
-                $output[] = array('text' => 'Custom field','children' => $result);
+                if (!empty($q)) {
+                    $result = array_filter($result, function ($r) use ($q) {
+                        return strpos($r['id'], $q) !== false;
+                    });
+                    $result = array_values($result);
+                }
+                if (count($result) > 0) {
+                    $output[] = array('text' => 'Custom field','children' => $result);
+                }
             }
 
             $taxes = get_taxonomies();
@@ -269,7 +282,15 @@ if (!class_exists('Sirrus_Cloud')) {
                 usort($result, function ($a, $b) {
                     return strcmp($a["id"], $b["id"]);
                 });
-                $output[] = array('text' => 'Taxonomy','children' => $result);
+                if (!empty($q)) {
+                    $result = array_filter($result, function ($r) use ($q) {
+                        return strpos($r['id'], $q) !== false;
+                    });
+                    $result = array_values($result);
+                }
+                if (count($result) > 0) {
+                    $output[] = array('text' => 'Taxonomy','children' => $result);
+                }
             }
 
             wp_send_json(array('results' => $output));
@@ -963,12 +984,24 @@ if (!class_exists('Sirrus_Cloud')) {
                                     wp_set_post_terms($id, [], $matches[1], false);
                                     continue;
                                 }
-                                $label_term = term_exists($value, $matches[1]);
-        
-                                if (empty($label_term)) {
-                                    $label_term = wp_insert_term($value, $matches[1]);
+                                if (!is_array($value)) {
+                                    $value = [$value];
                                 }
-                                wp_set_post_terms($id, $label_term['term_id'], $matches[1], false);
+                                $terms = [];
+                                foreach ($value as $v) {
+                                    if (empty($v)) {
+                                        continue;
+                                    }
+                                    $label_term = term_exists($v, $matches[1]);
+            
+                                    if (empty($label_term)) {
+                                        $label_term = wp_insert_term($v, $matches[1]);
+                                    }
+                                    if (!empty($label_term)) {
+                                        $terms[] = $label_term['term_id'];
+                                    }
+                                }
+                                wp_set_post_terms($id, $terms, $matches[1], false);
                             } elseif (!is_null($value)) {
                                 update_post_meta($id, $key, $value);
                             }
