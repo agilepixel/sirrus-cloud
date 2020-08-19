@@ -768,9 +768,21 @@ if (!class_exists('Sirrus_Cloud')) {
                         
                     break;
                     case 'taxonomy':
-                        $label_term = term_exists($data, $acfdata['taxonomy']);
-                        if ($label_term) {
-                            $return = [$label_term['term_id']];
+                        if (!is_array($data)) {
+                            $data = [$data];
+                        }
+                        $return = [];
+                        foreach ($data as $d) {
+                            $label_term = term_exists($d, $acfdata['taxonomy']);
+                            if (empty($label_term) && !empty($d)) {
+                                $label_term = wp_insert_term($d, $acfdata['taxonomy']);
+                            }
+                            if ($label_term) {
+                                $return[] = $label_term['term_id'];
+                            }
+                        }
+                        if ($acfdata['field_type'] == 'select' && count($return) > 0) {
+                            $return = $return[0];
                         }
                     break;
                     default:
@@ -778,6 +790,7 @@ if (!class_exists('Sirrus_Cloud')) {
                     break;
 
                 }
+                
 
                 if ($post_id && !is_null($field_id)) {
                     //if($field == 'content_sections'){
@@ -859,7 +872,9 @@ if (!class_exists('Sirrus_Cloud')) {
                 $schema = json_decode($schema, true);
                 foreach ($schema as $source => $wp) {
                     if (preg_match('/^taxonomyfield~'.$termid.'~(.*)/', $wp, $matches)) {
-                        update_term_meta($id, $matches[1], $data[$source]);
+                        $input = is_array($data[$source]) ? $data[$source][0] : $data[$source];
+                        
+                        self::process_meta($data[$source], $matches[1], $termid.'_'.$id);
                     }
                 }
 
@@ -1025,7 +1040,7 @@ if (!class_exists('Sirrus_Cloud')) {
                         wp_set_post_terms($id, $term->term_id, $term->taxonomy, false);
                         foreach ($schema as $source => $wp) {
                             if (preg_match('/^taxonomyfield~'.$term->taxonomy.'~(.*)/', $wp, $matches) && isset($data['artist'][$source])) {
-                                update_term_meta($termmatch[1], $matches[1], $data['artist'][$source]);
+                                self::process_meta($data['artist'][$source], $matches[1], $term->taxonomy.'_'.$term->term_id);
                             }
                         }
                     } else {
